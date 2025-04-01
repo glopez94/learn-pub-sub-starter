@@ -15,6 +15,13 @@ import (
 // Type: direct
 // Name: peril_topic
 // Type: topic
+// Name: peril_dlx
+// Type: fanout
+
+// Create Queues
+// Name: peril_dlq
+// Vincular la cola peril_dlq al intercambio peril_dlx
+
 func main() {
 	const rabbitConnString = "amqp://guest:guest@localhost:5672/"
 
@@ -30,18 +37,17 @@ func main() {
 		log.Fatalf("could not create channel: %v", err)
 	}
 
-	// Declarar y vincular la cola game_logs al intercambio peril_topic
 	_, queue, err := pubsub.DeclareAndBind(
 		conn,
 		routing.ExchangePerilTopic,
-		"game_logs",
-		"game_logs.*",
+		routing.GameLogSlug,
+		routing.GameLogSlug+".*",
 		pubsub.SimpleQueueDurable,
 	)
 	if err != nil {
-		log.Fatalf("could not declare and bind queue: %v", err)
+		log.Fatalf("could not subscribe to pause: %v", err)
 	}
-	fmt.Printf("Queue %v declared and bound to exchange %v\n", queue.Name, routing.ExchangePerilTopic)
+	fmt.Printf("Queue %v declared and bound!\n", queue.Name)
 
 	gamelogic.PrintServerHelp()
 
