@@ -3,76 +3,59 @@ package pubsub
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-const (
-	Durable   = 1
-	Transient = 2
-)
-
 func PublishJSON[T any](ch *amqp.Channel, exchange, key string, val T) error {
-	body, err := json.Marshal(val)
+	dat, err := json.Marshal(val)
 	if err != nil {
 		return err
 	}
-
-	return ch.PublishWithContext(
-		context.Background(),
-		exchange,
-		key,
-		false, // mandatory
-		false, // immediate
-		amqp.Publishing{
-			ContentType: "application/json",
-			Body:        body,
-		},
-	)
+	return ch.PublishWithContext(context.Background(), exchange, key, false, false, amqp.Publishing{
+		ContentType: "application/json",
+		Body:        dat,
+	})
 }
 
-func DeclareAndBind(
+func SubscribeJSON[T any](
 	conn *amqp.Connection,
 	exchange,
 	queueName,
 	key string,
-	simpleQueueType int,
-) (*amqp.Channel, amqp.Queue, error) {
-	ch, err := conn.Channel()
+	simpleQueueType SimpleQueueType,
+	handler func(T),
+) error {
+	ch, queue, err := DeclareAndBind(conn, exchange, queueName, key, simpleQueueType)
 	if err != nil {
-		return nil, amqp.Queue{}, err
+		return fmt.Errorf("could not declare and bind queue: %v", err)
 	}
 
-	var durable, autoDelete, exclusive bool
-	if simpleQueueType == Durable {
-		durable = true
-	} else {
-		autoDelete = true
-		exclusive = true
-	}
-
-	q, err := ch.QueueDeclare(
-		queueName,
-		durable,
-		autoDelete,
-		exclusive,
-		false, // noWait
-		nil,   // args
+	deliveries, err := ch.Consume(
+		queue.Name, // queue
+		"",         // consumer
+		false,      // auto-ack
+		false,      // exclusive
+		false,      // no-local
+		false,      // no-wait
+		nil,        // args
 	)
 	if err != nil {
-		return nil, amqp.Queue{}, err
+		return fmt.Errorf("could not consume from queue: %v", err)
 	}
 
-	err = ch.QueueBind(
-		q.Name,
-		key,
-		exchange,
-		false, // noWait
-		nil,   // args
-	)
-	if err != nil {
-		return nil, amqp.Queue{}, err
-	}
+	go func() {
+		for delivery := range deliveries {
+			var msg T
+			if err := json.Unmarshal(delivery.Body, &msg); err != nil {
+				fmt.Printf("could not unmarshal message: %v\n", err)
+				continue
+			}
+			handler(msg)
+			delivery.Ack(false)
+		}
+	}()
 
-	return ch, q, nil
+	return nil
 }
