@@ -1,3 +1,4 @@
+// internal/pubsub/consume.go
 package pubsub
 
 import (
